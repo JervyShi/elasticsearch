@@ -20,92 +20,168 @@
 package org.elasticsearch.action.search;
 
 import org.elasticsearch.action.ActionListener;
-import org.elasticsearch.action.search.type.*;
 import org.elasticsearch.action.support.ActionFilters;
 import org.elasticsearch.action.support.HandledTransportAction;
-import org.elasticsearch.cluster.ClusterService;
 import org.elasticsearch.cluster.ClusterState;
+import org.elasticsearch.cluster.block.ClusterBlockLevel;
+import org.elasticsearch.cluster.metadata.IndexNameExpressionResolver;
+import org.elasticsearch.cluster.node.DiscoveryNode;
+import org.elasticsearch.cluster.routing.GroupShardsIterator;
+import org.elasticsearch.cluster.service.ClusterService;
 import org.elasticsearch.common.inject.Inject;
+import org.elasticsearch.common.settings.Setting;
+import org.elasticsearch.common.settings.Setting.Property;
 import org.elasticsearch.common.settings.Settings;
+import org.elasticsearch.common.util.BigArrays;
+import org.elasticsearch.index.IndexNotFoundException;
 import org.elasticsearch.indices.IndexClosedException;
-import org.elasticsearch.indices.IndexMissingException;
+import org.elasticsearch.script.ScriptService;
+import org.elasticsearch.search.SearchService;
+import org.elasticsearch.search.internal.AliasFilter;
+import org.elasticsearch.tasks.Task;
 import org.elasticsearch.threadpool.ThreadPool;
 import org.elasticsearch.transport.TransportService;
 
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.Executor;
+import java.util.function.Function;
 
-import static org.elasticsearch.action.search.SearchType.*;
+import static org.elasticsearch.action.search.SearchType.QUERY_AND_FETCH;
+import static org.elasticsearch.action.search.SearchType.QUERY_THEN_FETCH;
 
-/**
- *
- */
 public class TransportSearchAction extends HandledTransportAction<SearchRequest, SearchResponse> {
 
+    /** The maximum number of shards for a single search request. */
+    public static final Setting<Long> SHARD_COUNT_LIMIT_SETTING = Setting.longSetting(
+            "action.search.shard_count.limit", 1000L, 1L, Property.Dynamic, Property.NodeScope);
+
     private final ClusterService clusterService;
-    private final TransportSearchDfsQueryThenFetchAction dfsQueryThenFetchAction;
-    private final TransportSearchQueryThenFetchAction queryThenFetchAction;
-    private final TransportSearchDfsQueryAndFetchAction dfsQueryAndFetchAction;
-    private final TransportSearchQueryAndFetchAction queryAndFetchAction;
-    private final TransportSearchScanAction scanAction;
-    private final TransportSearchCountAction countAction;
-    private final boolean optimizeSingleShard;
+    private final SearchTransportService searchTransportService;
+    private final SearchPhaseController searchPhaseController;
+    private final SearchService searchService;
 
     @Inject
-    public TransportSearchAction(Settings settings, ThreadPool threadPool,
-                                 TransportService transportService, ClusterService clusterService,
-                                 TransportSearchDfsQueryThenFetchAction dfsQueryThenFetchAction,
-                                 TransportSearchQueryThenFetchAction queryThenFetchAction,
-                                 TransportSearchDfsQueryAndFetchAction dfsQueryAndFetchAction,
-                                 TransportSearchQueryAndFetchAction queryAndFetchAction,
-                                 TransportSearchScanAction scanAction,
-                                 TransportSearchCountAction countAction,
-                                 ActionFilters actionFilters) {
-        super(settings, SearchAction.NAME, threadPool, transportService, actionFilters, SearchRequest.class);
+    public TransportSearchAction(Settings settings, ThreadPool threadPool, BigArrays bigArrays, ScriptService scriptService,
+                                 TransportService transportService, SearchService searchService,
+                                 ClusterService clusterService, ActionFilters actionFilters, IndexNameExpressionResolver
+                                             indexNameExpressionResolver) {
+        super(settings, SearchAction.NAME, threadPool, transportService, actionFilters, indexNameExpressionResolver, SearchRequest::new);
+        this.searchPhaseController = new SearchPhaseController(settings, bigArrays, scriptService);
+        this.searchTransportService = new SearchTransportService(settings, transportService);
+        SearchTransportService.registerRequestHandler(transportService, searchService);
         this.clusterService = clusterService;
-        this.dfsQueryThenFetchAction = dfsQueryThenFetchAction;
-        this.queryThenFetchAction = queryThenFetchAction;
-        this.dfsQueryAndFetchAction = dfsQueryAndFetchAction;
-        this.queryAndFetchAction = queryAndFetchAction;
-        this.scanAction = scanAction;
-        this.countAction = countAction;
-        this.optimizeSingleShard = this.settings.getAsBoolean("action.search.optimize_single_shard", true);
+        this.searchService = searchService;
+    }
+
+    private Map<String, AliasFilter> buildPerIndexAliasFilter(SearchRequest request, ClusterState clusterState, String...concreteIndices) {
+        final Map<String, AliasFilter> aliasFilterMap = new HashMap<>();
+        for (String index : concreteIndices) {
+            clusterState.blocks().indexBlockedRaiseException(ClusterBlockLevel.READ, index);
+            AliasFilter aliasFilter = searchService.buildAliasFilter(clusterState, index, request.indices());
+            if (aliasFilter != null) {
+                aliasFilterMap.put(index, aliasFilter);
+            }
+        }
+        return aliasFilterMap;
     }
 
     @Override
-    protected void doExecute(SearchRequest searchRequest, ActionListener<SearchResponse> listener) {
+    protected void doExecute(Task task, SearchRequest searchRequest, ActionListener<SearchResponse> listener) {
+        // pure paranoia if time goes backwards we are at least positive
+        final long startTimeInMillis = Math.max(0, System.currentTimeMillis());
+        ClusterState clusterState = clusterService.state();
+        clusterState.blocks().globalBlockedRaiseException(ClusterBlockLevel.READ);
+
+        // TODO: I think startTime() should become part of ActionRequest and that should be used both for index name
+        // date math expressions and $now in scripts. This way all apis will deal with now in the same way instead
+        // of just for the _search api
+        String[] concreteIndices = indexNameExpressionResolver.concreteIndexNames(clusterState, searchRequest.indicesOptions(),
+            startTimeInMillis, searchRequest.indices());
+        Map<String, AliasFilter> aliasFilter = buildPerIndexAliasFilter(searchRequest, clusterState, concreteIndices);
+        Map<String, Set<String>> routingMap = indexNameExpressionResolver.resolveSearchRouting(clusterState, searchRequest.routing(),
+            searchRequest.indices());
+        GroupShardsIterator shardIterators = clusterService.operationRouting().searchShards(clusterState, concreteIndices, routingMap,
+            searchRequest.preference());
+        failIfOverShardCountLimit(clusterService, shardIterators.size());
+
         // optimize search type for cases where there is only one shard group to search on
-        if (optimizeSingleShard && searchRequest.searchType() != SCAN && searchRequest.searchType() != COUNT) {
-            try {
-                ClusterState clusterState = clusterService.state();
-                String[] concreteIndices = clusterState.metaData().concreteIndices(searchRequest.indicesOptions(), searchRequest.indices());
-                Map<String, Set<String>> routingMap = clusterState.metaData().resolveSearchRouting(searchRequest.routing(), searchRequest.indices());
-                int shardCount = clusterService.operationRouting().searchShardsCount(clusterState, searchRequest.indices(), concreteIndices, routingMap, searchRequest.preference());
-                if (shardCount == 1) {
-                    // if we only have one group, then we always want Q_A_F, no need for DFS, and no need to do THEN since we hit one shard
-                    searchRequest.searchType(QUERY_AND_FETCH);
-                }
-            } catch (IndexMissingException|IndexClosedException e) {
-                // ignore these failures, we will notify the search response if its really the case from the actual action
-            } catch (Exception e) {
-                logger.debug("failed to optimize search type, continue as normal", e);
+        try {
+            if (shardIterators.size() == 1) {
+                // if we only have one group, then we always want Q_A_F, no need for DFS, and no need to do THEN since we hit one shard
+                searchRequest.searchType(QUERY_AND_FETCH);
             }
+            if (searchRequest.isSuggestOnly()) {
+                // disable request cache if we have only suggest
+                searchRequest.requestCache(false);
+                switch (searchRequest.searchType()) {
+                    case DFS_QUERY_AND_FETCH:
+                    case DFS_QUERY_THEN_FETCH:
+                        // convert to Q_T_F if we have only suggest
+                        searchRequest.searchType(QUERY_THEN_FETCH);
+                        break;
+                }
+            }
+        } catch (IndexNotFoundException | IndexClosedException e) {
+            // ignore these failures, we will notify the search response if its really the case from the actual action
+        } catch (Exception e) {
+            logger.debug("failed to optimize search type, continue as normal", e);
         }
 
-        if (searchRequest.searchType() == DFS_QUERY_THEN_FETCH) {
-            dfsQueryThenFetchAction.execute(searchRequest, listener);
-        } else if (searchRequest.searchType() == SearchType.QUERY_THEN_FETCH) {
-            queryThenFetchAction.execute(searchRequest, listener);
-        } else if (searchRequest.searchType() == SearchType.DFS_QUERY_AND_FETCH) {
-            dfsQueryAndFetchAction.execute(searchRequest, listener);
-        } else if (searchRequest.searchType() == SearchType.QUERY_AND_FETCH) {
-            queryAndFetchAction.execute(searchRequest, listener);
-        } else if (searchRequest.searchType() == SearchType.SCAN) {
-            scanAction.execute(searchRequest, listener);
-        } else if (searchRequest.searchType() == SearchType.COUNT) {
-            countAction.execute(searchRequest, listener);
-        } else {
-            throw new IllegalStateException("Unknown search type: [" + searchRequest.searchType() + "]");
+        searchAsyncAction((SearchTask)task, searchRequest, shardIterators, startTimeInMillis, clusterState,
+            Collections.unmodifiableMap(aliasFilter), listener).start();
+    }
+
+    @Override
+    protected final void doExecute(SearchRequest searchRequest, ActionListener<SearchResponse> listener) {
+        throw new UnsupportedOperationException("the task parameter is required");
+    }
+
+    private AbstractSearchAsyncAction searchAsyncAction(SearchTask task, SearchRequest searchRequest, GroupShardsIterator shardIterators,
+                                                        long startTime, ClusterState state,  Map<String, AliasFilter> aliasFilter,
+                                                        ActionListener<SearchResponse> listener) {
+        final Function<String, DiscoveryNode> nodesLookup = state.nodes()::get;
+        final long clusterStateVersion = state.version();
+        Executor executor = threadPool.executor(ThreadPool.Names.SEARCH);
+        AbstractSearchAsyncAction searchAsyncAction;
+        switch(searchRequest.searchType()) {
+            case DFS_QUERY_THEN_FETCH:
+                searchAsyncAction = new SearchDfsQueryThenFetchAsyncAction(logger, searchTransportService, nodesLookup,
+                    aliasFilter, searchPhaseController, executor, searchRequest, listener, shardIterators, startTime,
+                    clusterStateVersion, task);
+                break;
+            case QUERY_THEN_FETCH:
+                searchAsyncAction = new SearchQueryThenFetchAsyncAction(logger, searchTransportService, nodesLookup,
+                    aliasFilter, searchPhaseController, executor, searchRequest, listener, shardIterators, startTime,
+                    clusterStateVersion, task);
+                break;
+            case DFS_QUERY_AND_FETCH:
+                searchAsyncAction = new SearchDfsQueryAndFetchAsyncAction(logger, searchTransportService, nodesLookup,
+                    aliasFilter, searchPhaseController, executor, searchRequest, listener, shardIterators, startTime,
+                    clusterStateVersion, task);
+                break;
+            case QUERY_AND_FETCH:
+                searchAsyncAction = new SearchQueryAndFetchAsyncAction(logger, searchTransportService, nodesLookup,
+                    aliasFilter, searchPhaseController, executor, searchRequest, listener, shardIterators, startTime,
+                    clusterStateVersion, task);
+                break;
+            default:
+                throw new IllegalStateException("Unknown search type: [" + searchRequest.searchType() + "]");
+        }
+        return searchAsyncAction;
+    }
+
+    private void failIfOverShardCountLimit(ClusterService clusterService, int shardCount) {
+        final long shardCountLimit = clusterService.getClusterSettings().get(SHARD_COUNT_LIMIT_SETTING);
+        if (shardCount > shardCountLimit) {
+            throw new IllegalArgumentException("Trying to query " + shardCount + " shards, which is over the limit of "
+                + shardCountLimit + ". This limit exists because querying many shards at the same time can make the "
+                + "job of the coordinating node very CPU and/or memory intensive. It is usually a better idea to "
+                + "have a smaller number of larger shards. Update [" + SHARD_COUNT_LIMIT_SETTING.getKey()
+                + "] to a greater value if you really want to query that many shards at the same time.");
         }
     }
+
 }

@@ -18,31 +18,23 @@
  */
 package org.elasticsearch.search.suggest;
 
-import com.google.common.collect.ImmutableMap;
-import org.elasticsearch.common.collect.MapBuilder;
-import org.elasticsearch.common.inject.Inject;
-
-import java.util.Set;
+import java.util.Map;
 
 /**
- *
+ * Registry of Suggesters. This is only its own class to make Guice happy.
  */
-public class Suggesters {
-    private final ImmutableMap<String, Suggester> parsers;
+public final class Suggesters {
+    private final Map<String, Suggester<?>> suggesters;
 
-    @Inject
-    public Suggesters(Set<Suggester> suggesters) {
-        MapBuilder<String, Suggester> builder = MapBuilder.newMapBuilder();
-        for (Suggester suggester : suggesters) {
-            for (String type : suggester.names()) {
-                builder.put(type, suggester);
-            }
+    public Suggesters(Map<String, Suggester<?>> suggesters) {
+        this.suggesters = suggesters;
+    }
+
+    public Suggester<?> getSuggester(String suggesterName) {
+        Suggester<?> suggester = suggesters.get(suggesterName);
+        if (suggester == null) {
+            throw new IllegalArgumentException("suggester with name [" + suggesterName + "] not supported");
         }
-        this.parsers = builder.immutableMap();
+        return suggester;
     }
-
-    public Suggester get(String type) {
-        return parsers.get(type);
-    }
-
 }

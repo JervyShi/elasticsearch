@@ -26,16 +26,13 @@ import org.elasticsearch.transport.TransportRequest;
 
 import java.io.IOException;
 
-/**
- *
- */
-class RecoveryFinalizeRecoveryRequest extends TransportRequest {
+public class RecoveryFinalizeRecoveryRequest extends TransportRequest {
 
     private long recoveryId;
 
     private ShardId shardId;
 
-    RecoveryFinalizeRecoveryRequest() {
+    public RecoveryFinalizeRecoveryRequest() {
     }
 
     RecoveryFinalizeRecoveryRequest(long recoveryId, ShardId shardId) {

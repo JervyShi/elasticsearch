@@ -42,7 +42,7 @@ public class URLBlobStore extends AbstractComponent implements BlobStore {
 
     /**
      * Constructs new read-only URL-based blob store
-     * <p/>
+     * <p>
      * The following settings are supported
      * <dl>
      * <dt>buffer_size</dt>
@@ -55,7 +55,7 @@ public class URLBlobStore extends AbstractComponent implements BlobStore {
     public URLBlobStore(Settings settings, URL path) {
         super(settings);
         this.path = path;
-        this.bufferSizeInBytes = (int) settings.getAsBytesSize("repositories.uri.buffer_size", new ByteSizeValue(100, ByteSizeUnit.KB)).bytes();
+        this.bufferSizeInBytes = (int) settings.getAsBytesSize("repositories.uri.buffer_size", new ByteSizeValue(100, ByteSizeUnit.KB)).getBytes();
     }
 
     /**
@@ -98,8 +98,6 @@ public class URLBlobStore extends AbstractComponent implements BlobStore {
 
     /**
      * This operation is not supported by URL Blob Store
-     *
-     * @param path
      */
     @Override
     public void delete(BlobPath path) {
@@ -119,7 +117,6 @@ public class URLBlobStore extends AbstractComponent implements BlobStore {
      *
      * @param path relative path
      * @return Base URL + path
-     * @throws MalformedURLException
      */
     private URL buildPath(BlobPath path) throws MalformedURLException {
         String[] paths = path.toArray();

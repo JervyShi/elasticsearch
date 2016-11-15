@@ -20,83 +20,118 @@
 package org.elasticsearch.search.aggregations.metrics.percentiles;
 
 import com.carrotsearch.hppc.DoubleArrayList;
-
+import org.elasticsearch.common.ParseField;
 import org.elasticsearch.common.xcontent.XContentParser;
-import org.elasticsearch.search.SearchParseException;
-import org.elasticsearch.search.aggregations.Aggregator;
-import org.elasticsearch.search.aggregations.AggregatorFactory;
-import org.elasticsearch.search.aggregations.support.ValuesSource;
+import org.elasticsearch.common.xcontent.XContentParser.Token;
+import org.elasticsearch.search.aggregations.support.AbstractValuesSourceParser.NumericValuesSourceParser;
+import org.elasticsearch.search.aggregations.support.XContentParseContext;
+import org.elasticsearch.search.aggregations.support.ValueType;
 import org.elasticsearch.search.aggregations.support.ValuesSource.Numeric;
-import org.elasticsearch.search.aggregations.support.ValuesSourceConfig;
-import org.elasticsearch.search.aggregations.support.ValuesSourceParser;
-import org.elasticsearch.search.internal.SearchContext;
+import org.elasticsearch.search.aggregations.support.ValuesSourceAggregationBuilder;
+import org.elasticsearch.search.aggregations.support.ValuesSourceType;
 
 import java.io.IOException;
-import java.util.Arrays;
+import java.util.Map;
 
-public abstract class AbstractPercentilesParser implements Aggregator.Parser {
+public abstract class AbstractPercentilesParser extends NumericValuesSourceParser {
 
-    private boolean formattable;
+    public static final ParseField KEYED_FIELD = new ParseField("keyed");
+    public static final ParseField METHOD_FIELD = new ParseField("method");
+    public static final ParseField COMPRESSION_FIELD = new ParseField("compression");
+    public static final ParseField NUMBER_SIGNIFICANT_DIGITS_FIELD = new ParseField("number_of_significant_value_digits");
 
     public AbstractPercentilesParser(boolean formattable) {
-        this.formattable = formattable;
+        super(true, formattable, false);
     }
 
     @Override
-    public AggregatorFactory parse(String aggregationName, XContentParser parser, SearchContext context) throws IOException {
-    
-        ValuesSourceParser<ValuesSource.Numeric> vsParser = ValuesSourceParser.numeric(aggregationName, InternalPercentiles.TYPE, context)
-                .formattable(formattable).build();
-    
-        double[] keys = null;
-        boolean keyed = true;
-        double compression = 100;
-    
-        XContentParser.Token token;
-        String currentFieldName = null;
-        while ((token = parser.nextToken()) != XContentParser.Token.END_OBJECT) {
-            if (token == XContentParser.Token.FIELD_NAME) {
-                currentFieldName = parser.currentName();
-            } else if (vsParser.token(currentFieldName, token, parser)) {
-                continue;
-            } else if (token == XContentParser.Token.START_ARRAY) {
-                if (keysFieldName().equals(currentFieldName)) {
-                    DoubleArrayList values = new DoubleArrayList(10);
-                    while ((token = parser.nextToken()) != XContentParser.Token.END_ARRAY) {
-                        double value = parser.doubleValue();
-                        values.add(value);
-                    }
-                    keys = values.toArray();
-                    Arrays.sort(keys);
-                } else {
-                    throw new SearchParseException(context, "Unknown key for a " + token + " in [" + aggregationName + "]: ["
-                            + currentFieldName + "].", parser.getTokenLocation());
+    protected boolean token(String aggregationName, String currentFieldName, Token token,
+                            XContentParseContext context, Map<ParseField, Object> otherOptions) throws IOException {
+        XContentParser parser = context.getParser();
+        if (token == XContentParser.Token.START_ARRAY) {
+            if (context.matchField(currentFieldName, keysField())) {
+                DoubleArrayList values = new DoubleArrayList(10);
+                while ((token = parser.nextToken()) != XContentParser.Token.END_ARRAY) {
+                    double value = parser.doubleValue();
+                    values.add(value);
                 }
-            } else if (token == XContentParser.Token.VALUE_BOOLEAN) {
-                if ("keyed".equals(currentFieldName)) {
-                    keyed = parser.booleanValue();
-                } else {
-                    throw new SearchParseException(context, "Unknown key for a " + token + " in [" + aggregationName + "]: ["
-                            + currentFieldName + "].", parser.getTokenLocation());
-                }
-            } else if (token == XContentParser.Token.VALUE_NUMBER) {
-                if ("compression".equals(currentFieldName)) {
-                    compression = parser.doubleValue();
-                } else {
-                    throw new SearchParseException(context, "Unknown key for a " + token + " in [" + aggregationName + "]: ["
-                            + currentFieldName + "].", parser.getTokenLocation());
-                }
+                double[] keys = values.toArray();
+                otherOptions.put(keysField(), keys);
+                return true;
             } else {
-                throw new SearchParseException(context, "Unexpected token " + token + " in [" + aggregationName + "].",
-                        parser.getTokenLocation());
+                return false;
+            }
+        } else if (token == XContentParser.Token.VALUE_BOOLEAN) {
+            if (context.matchField(currentFieldName, KEYED_FIELD)) {
+                boolean keyed = parser.booleanValue();
+                otherOptions.put(KEYED_FIELD, keyed);
+                return true;
+            } else {
+                return false;
+            }
+        } else if (token == XContentParser.Token.START_OBJECT) {
+            PercentilesMethod method = PercentilesMethod.resolveFromName(currentFieldName);
+            if (method == null) {
+                return false;
+            } else {
+                otherOptions.put(METHOD_FIELD, method);
+                switch (method) {
+                case TDIGEST:
+                    while ((token = parser.nextToken()) != XContentParser.Token.END_OBJECT) {
+                        if (token == XContentParser.Token.FIELD_NAME) {
+                            currentFieldName = parser.currentName();
+                        } else if (token == XContentParser.Token.VALUE_NUMBER) {
+                            if (context.matchField(currentFieldName, COMPRESSION_FIELD)) {
+                                double compression = parser.doubleValue();
+                                otherOptions.put(COMPRESSION_FIELD, compression);
+                            } else {
+                                return false;
+                            }
+                        } else {
+                            return false;
+                        }
+                    }
+                    break;
+                case HDR:
+                    while ((token = parser.nextToken()) != XContentParser.Token.END_OBJECT) {
+                        if (token == XContentParser.Token.FIELD_NAME) {
+                            currentFieldName = parser.currentName();
+                        } else if (token == XContentParser.Token.VALUE_NUMBER) {
+                            if (context.matchField(currentFieldName, NUMBER_SIGNIFICANT_DIGITS_FIELD)) {
+                                int numberOfSignificantValueDigits = parser.intValue();
+                                otherOptions.put(NUMBER_SIGNIFICANT_DIGITS_FIELD, numberOfSignificantValueDigits);
+                            } else {
+                                return false;
+                            }
+                        } else {
+                            return false;
+                        }
+                    }
+                    break;
+                }
+                return true;
             }
         }
-        return buildFactory(context, aggregationName, vsParser.config(), keys, compression, keyed);
+        return false;
     }
 
-    protected abstract AggregatorFactory buildFactory(SearchContext context, String aggregationName, ValuesSourceConfig<Numeric> config, double[] cdfValues,
-            double compression, boolean keyed);
+    @Override
+    protected ValuesSourceAggregationBuilder<Numeric, ?> createFactory(String aggregationName, ValuesSourceType valuesSourceType,
+                                                                       ValueType targetValueType, Map<ParseField, Object> otherOptions) {
+        PercentilesMethod method = (PercentilesMethod) otherOptions.getOrDefault(METHOD_FIELD, PercentilesMethod.TDIGEST);
 
-    protected abstract String keysFieldName();
+        double[] cdfValues = (double[]) otherOptions.get(keysField());
+        Double compression = (Double) otherOptions.get(COMPRESSION_FIELD);
+        Integer numberOfSignificantValueDigits = (Integer) otherOptions.get(NUMBER_SIGNIFICANT_DIGITS_FIELD);
+        Boolean keyed = (Boolean) otherOptions.get(KEYED_FIELD);
+        return buildFactory(aggregationName, cdfValues, method, compression, numberOfSignificantValueDigits, keyed);
+    }
+
+    protected abstract ValuesSourceAggregationBuilder<Numeric, ?> buildFactory(String aggregationName, double[] cdfValues,
+                                                                               PercentilesMethod method,
+                                                                               Double compression,
+                                                                               Integer numberOfSignificantValueDigits, Boolean keyed);
+
+    protected abstract ParseField keysField();
 
 }

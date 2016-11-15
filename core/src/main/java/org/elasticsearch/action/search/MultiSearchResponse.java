@@ -19,8 +19,8 @@
 
 package org.elasticsearch.action.search;
 
-import com.google.common.collect.Iterators;
 import org.elasticsearch.ElasticsearchException;
+import org.elasticsearch.ExceptionsHelper;
 import org.elasticsearch.action.ActionResponse;
 import org.elasticsearch.common.Nullable;
 import org.elasticsearch.common.io.stream.StreamInput;
@@ -28,11 +28,10 @@ import org.elasticsearch.common.io.stream.StreamOutput;
 import org.elasticsearch.common.io.stream.Streamable;
 import org.elasticsearch.common.xcontent.ToXContent;
 import org.elasticsearch.common.xcontent.XContentBuilder;
-import org.elasticsearch.common.xcontent.XContentBuilderString;
 import org.elasticsearch.common.xcontent.XContentFactory;
 
 import java.io.IOException;
-import java.util.Collections;
+import java.util.Arrays;
 import java.util.Iterator;
 
 /**
@@ -45,22 +44,22 @@ public class MultiSearchResponse extends ActionResponse implements Iterable<Mult
      */
     public static class Item implements Streamable {
         private SearchResponse response;
-        private Throwable throwable;
+        private Exception exception;
 
         Item() {
 
         }
 
-        public Item(SearchResponse response, Throwable throwable) {
+        public Item(SearchResponse response, Exception exception) {
             this.response = response;
-            this.throwable = throwable;
+            this.exception = exception;
         }
 
         /**
          * Is it a failed search?
          */
         public boolean isFailure() {
-            return throwable != null;
+            return exception != null;
         }
 
         /**
@@ -68,7 +67,7 @@ public class MultiSearchResponse extends ActionResponse implements Iterable<Mult
          */
         @Nullable
         public String getFailureMessage() {
-            return throwable == null ? null : throwable.getMessage();
+            return exception == null ? null : exception.getMessage();
         }
 
         /**
@@ -91,7 +90,7 @@ public class MultiSearchResponse extends ActionResponse implements Iterable<Mult
                 this.response = new SearchResponse();
                 response.readFrom(in);
             } else {
-                throwable = in.readThrowable();
+                exception = in.readException();
             }
         }
 
@@ -102,12 +101,12 @@ public class MultiSearchResponse extends ActionResponse implements Iterable<Mult
                 response.writeTo(out);
             } else {
                 out.writeBoolean(false);
-                out.writeThrowable(throwable);
+                out.writeException(exception);
             }
         }
 
-        public Throwable getFailure() {
-            return throwable;
+        public Exception getFailure() {
+            return exception;
         }
     }
 
@@ -122,7 +121,7 @@ public class MultiSearchResponse extends ActionResponse implements Iterable<Mult
 
     @Override
     public Iterator<Item> iterator() {
-        return Iterators.forArray(items);
+        return Arrays.stream(items).iterator();
     }
 
     /**
@@ -154,38 +153,27 @@ public class MultiSearchResponse extends ActionResponse implements Iterable<Mult
     public XContentBuilder toXContent(XContentBuilder builder, Params params) throws IOException {
         builder.startArray(Fields.RESPONSES);
         for (Item item : items) {
+            builder.startObject();
             if (item.isFailure()) {
-                builder.startObject();
-                builder.startObject(Fields.ERROR);
-                final Throwable t = item.getFailure();
-                final ElasticsearchException[] rootCauses = ElasticsearchException.guessRootCauses(t);
-                builder.field(Fields.ROOT_CAUSE);
-                builder.startArray();
-                for (ElasticsearchException rootCause : rootCauses){
-                    builder.startObject();
-                    rootCause.toXContent(builder, new ToXContent.DelegatingMapParams(Collections.singletonMap(ElasticsearchException.REST_EXCEPTION_SKIP_CAUSE, "true"), params));
-                    builder.endObject();
-                }
-                builder.endArray();
-                ElasticsearchException.toXContent(builder, params, t);
-                builder.endObject();
-                builder.endObject();
+                ElasticsearchException.renderException(builder, params, item.getFailure());
+                builder.field(Fields.STATUS, ExceptionsHelper.status(item.getFailure()).getStatus());
             } else {
-                builder.startObject();
                 item.getResponse().toXContent(builder, params);
-                builder.endObject();
+                builder.field(Fields.STATUS, item.getResponse().status().getStatus());
             }
+            builder.endObject();
         }
         builder.endArray();
         return builder;
     }
 
     static final class Fields {
-        static final XContentBuilderString RESPONSES = new XContentBuilderString("responses");
-        static final XContentBuilderString ERROR = new XContentBuilderString("error");
-        static final XContentBuilderString ROOT_CAUSE = new XContentBuilderString("root_cause");
+        static final String RESPONSES = "responses";
+        static final String STATUS = "status";
+        static final String ERROR = "error";
+        static final String ROOT_CAUSE = "root_cause";
     }
-    
+
     @Override
     public String toString() {
         try {

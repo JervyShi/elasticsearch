@@ -27,10 +27,7 @@ import org.elasticsearch.common.xcontent.ToXContent;
 import org.elasticsearch.common.xcontent.XContentBuilder;
 
 import java.io.IOException;
-import java.util.Map;
 
-/**
- */
 public class ClusterSearchShardsResponse extends ActionResponse implements ToXContent {
 
     private ClusterSearchShardsGroup[] groups;
@@ -62,7 +59,7 @@ public class ClusterSearchShardsResponse extends ActionResponse implements ToXCo
         }
         nodes = new DiscoveryNode[in.readVInt()];
         for (int i = 0; i < nodes.length; i++) {
-            nodes[i] = DiscoveryNode.readNode(in);
+            nodes[i] = new DiscoveryNode(in);
         }
 
     }
@@ -84,17 +81,7 @@ public class ClusterSearchShardsResponse extends ActionResponse implements ToXCo
     public XContentBuilder toXContent(XContentBuilder builder, Params params) throws IOException {
         builder.startObject("nodes");
         for (DiscoveryNode node : nodes) {
-            builder.startObject(node.getId(), XContentBuilder.FieldCaseConversion.NONE);
-            builder.field("name", node.name());
-            builder.field("transport_address", node.getAddress());
-            if (!node.attributes().isEmpty()) {
-                builder.startObject("attributes");
-                for (Map.Entry<String, String> attr : node.attributes().entrySet()) {
-                    builder.field(attr.getKey(), attr.getValue());
-                }
-                builder.endObject();
-            }
-            builder.endObject();
+            node.toXContent(builder, params);
         }
         builder.endObject();
         builder.startArray("shards");

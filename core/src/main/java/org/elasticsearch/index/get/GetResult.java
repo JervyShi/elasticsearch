@@ -19,8 +19,6 @@
 
 package org.elasticsearch.index.get;
 
-import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.Lists;
 import org.elasticsearch.ElasticsearchParseException;
 import org.elasticsearch.common.bytes.BytesReference;
 import org.elasticsearch.common.compress.CompressorFactory;
@@ -29,21 +27,21 @@ import org.elasticsearch.common.io.stream.StreamOutput;
 import org.elasticsearch.common.io.stream.Streamable;
 import org.elasticsearch.common.xcontent.ToXContent;
 import org.elasticsearch.common.xcontent.XContentBuilder;
-import org.elasticsearch.common.xcontent.XContentBuilderString;
 import org.elasticsearch.common.xcontent.XContentHelper;
+import org.elasticsearch.index.mapper.SourceFieldMapper;
 import org.elasticsearch.search.lookup.SourceLookup;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 
-import static com.google.common.collect.Maps.newHashMapWithExpectedSize;
+import static java.util.Collections.emptyMap;
 import static org.elasticsearch.index.get.GetField.readGetField;
 
-/**
- */
 public class GetResult implements Streamable, Iterable<GetField>, ToXContent {
 
     private String index;
@@ -68,7 +66,7 @@ public class GetResult implements Streamable, Iterable<GetField>, ToXContent {
         this.source = source;
         this.fields = fields;
         if (this.fields == null) {
-            this.fields = ImmutableMap.of();
+            this.fields = emptyMap();
         }
     }
 
@@ -117,7 +115,7 @@ public class GetResult implements Streamable, Iterable<GetField>, ToXContent {
         if (sourceAsBytes != null) {
             return sourceAsBytes;
         }
-        this.sourceAsBytes = sourceRef().toBytes();
+        this.sourceAsBytes = BytesReference.toBytes(sourceRef());
         return this.sourceAsBytes;
     }
 
@@ -199,17 +197,17 @@ public class GetResult implements Streamable, Iterable<GetField>, ToXContent {
     }
 
     static final class Fields {
-        static final XContentBuilderString _INDEX = new XContentBuilderString("_index");
-        static final XContentBuilderString _TYPE = new XContentBuilderString("_type");
-        static final XContentBuilderString _ID = new XContentBuilderString("_id");
-        static final XContentBuilderString _VERSION = new XContentBuilderString("_version");
-        static final XContentBuilderString FOUND = new XContentBuilderString("found");
-        static final XContentBuilderString FIELDS = new XContentBuilderString("fields");
+        static final String _INDEX = "_index";
+        static final String _TYPE = "_type";
+        static final String _ID = "_id";
+        static final String _VERSION = "_version";
+        static final String FOUND = "found";
+        static final String FIELDS = "fields";
     }
 
     public XContentBuilder toXContentEmbedded(XContentBuilder builder, Params params) throws IOException {
-        List<GetField> metaFields = Lists.newArrayList();
-        List<GetField> otherFields = Lists.newArrayList();
+        List<GetField> metaFields = new ArrayList<>();
+        List<GetField> otherFields = new ArrayList<>();
         if (fields != null && !fields.isEmpty()) {
             for (GetField field : fields.values()) {
                 if (field.getValues().isEmpty()) {
@@ -230,7 +228,7 @@ public class GetResult implements Streamable, Iterable<GetField>, ToXContent {
         builder.field(Fields.FOUND, exists);
 
         if (source != null) {
-            XContentHelper.writeRawField("_source", source, builder, params);
+            XContentHelper.writeRawField(SourceFieldMapper.NAME, source, builder, params);
         }
 
         if (!otherFields.isEmpty()) {
@@ -286,9 +284,9 @@ public class GetResult implements Streamable, Iterable<GetField>, ToXContent {
             }
             int size = in.readVInt();
             if (size == 0) {
-                fields = ImmutableMap.of();
+                fields = emptyMap();
             } else {
-                fields = newHashMapWithExpectedSize(size);
+                fields = new HashMap<>(size);
                 for (int i = 0; i < size; i++) {
                     GetField field = readGetField(in);
                     fields.put(field.getName(), field);

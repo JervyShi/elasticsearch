@@ -22,12 +22,12 @@ package org.elasticsearch.search.fetch;
 import com.carrotsearch.hppc.IntArrayList;
 import org.apache.lucene.search.FieldDoc;
 import org.apache.lucene.search.ScoreDoc;
-import org.elasticsearch.Version;
-import org.elasticsearch.action.search.SearchScrollRequest;
-import org.elasticsearch.action.search.type.ParsedScrollId;
+import org.elasticsearch.action.search.SearchTask;
 import org.elasticsearch.common.io.stream.StreamInput;
 import org.elasticsearch.common.io.stream.StreamOutput;
 import org.elasticsearch.common.lucene.Lucene;
+import org.elasticsearch.tasks.Task;
+import org.elasticsearch.tasks.TaskId;
 import org.elasticsearch.transport.TransportRequest;
 
 import java.io.IOException;
@@ -49,16 +49,7 @@ public class ShardFetchRequest extends TransportRequest {
     public ShardFetchRequest() {
     }
 
-    public ShardFetchRequest(SearchScrollRequest request, long id, IntArrayList list, ScoreDoc lastEmittedDoc) {
-        super(request);
-        this.id = id;
-        this.docIds = list.buffer;
-        this.size = list.size();
-        this.lastEmittedDoc = lastEmittedDoc;
-    }
-
-    protected ShardFetchRequest(TransportRequest originalRequest, long id, IntArrayList list, ScoreDoc lastEmittedDoc) {
-        super(originalRequest);
+    public ShardFetchRequest(long id, IntArrayList list, ScoreDoc lastEmittedDoc) {
         this.id = id;
         this.docIds = list.buffer;
         this.size = list.size();
@@ -117,5 +108,10 @@ public class ShardFetchRequest extends TransportRequest {
             out.writeByte((byte) 2);
             Lucene.writeScoreDoc(out, lastEmittedDoc);
         }
+    }
+
+    @Override
+    public Task createTask(long id, String type, String action, TaskId parentTaskId) {
+        return new SearchTask(id, type, action, getDescription(), parentTaskId);
     }
 }

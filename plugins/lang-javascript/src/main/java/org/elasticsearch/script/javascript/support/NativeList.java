@@ -27,11 +27,7 @@ import org.mozilla.javascript.Wrapper;
 import java.util.Arrays;
 import java.util.List;
 
-/**
- *
- */
 public class NativeList extends NativeJavaObject implements Scriptable, Wrapper {
-    private static final long serialVersionUID = 3664761893203964569L;
     private static final String LENGTH_PROPERTY = "length";
 
     private final List<Object> list;

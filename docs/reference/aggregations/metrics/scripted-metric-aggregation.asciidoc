@@ -79,7 +79,16 @@ The above example can also be specified using file scripts as follows:
 
 <1> script parameters for init, map and combine scripts must be specified in a global `params` object so that it can be share between the scripts
 
-For more details on specifying scripts see <<modules-scripting, script documentation>>. 
+For more details on specifying scripts see <<modules-scripting, script documentation>>.
+
+==== Allowed return types
+
+Whilst and valid script object can be used within a single script. the scripts must return or store in the `_agg` object only the following types:
+
+* primitive types
+* String
+* Map (containing only keys and values of the types listed here)
+* Array (containing elements of only the types listed here) 
 
 ==== Scope of scripts
 
@@ -92,7 +101,7 @@ In the above example, the `init_script` creates an array `transactions` in the `
 map_script::        Executed once per document collected. This is the only required script. If no combine_script is specified, the resulting state 
                     needs to be stored in an object named `_agg`.
 +
-In the above example, the `map_script` checks the value of the type field. If the value if 'sale' the value of the amount field 
+In the above example, the `map_script` checks the value of the type field. If the value is 'sale' the value of the amount field 
 is added to the transactions array. If the value of the type field is not 'sale' the negated value of the amount field is added 
 to transactions.
 
@@ -259,6 +268,4 @@ params::           Optional. An object whose contents will be passed as variable
     "_agg" : {}
 }
 --------------------------------------------------
-reduce_params::    Optional. An object whose contents will be passed as variables to the `reduce_script`. This can be useful to allow the user to control 
-                   the behavior of the reduce phase. If this is not specified the variable will be undefined in the reduce_script execution.
 

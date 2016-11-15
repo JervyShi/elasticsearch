@@ -21,8 +21,9 @@ package org.elasticsearch.search.aggregations.pipeline.movavg.models;
 
 import org.elasticsearch.common.Nullable;
 import org.elasticsearch.common.ParseFieldMatcher;
+import org.elasticsearch.common.io.stream.NamedWriteable;
 import org.elasticsearch.common.io.stream.StreamOutput;
-import org.elasticsearch.search.SearchParseException;
+import org.elasticsearch.common.xcontent.ToXContent;
 
 import java.io.IOException;
 import java.text.ParseException;
@@ -30,12 +31,10 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.Map;
 
-public abstract class MovAvgModel {
+public abstract class MovAvgModel implements NamedWriteable, ToXContent {
 
     /**
      * Should this model be fit to the data via a cost minimizing algorithm by default?
-     *
-     * @return
      */
     public boolean minimizeByDefault() {
         return false;
@@ -44,16 +43,12 @@ public abstract class MovAvgModel {
     /**
      * Returns if the model can be cost minimized.  Not all models have parameters
      * which can be tuned / optimized.
-     *
-     * @return
      */
     public abstract boolean canBeMinimized();
 
     /**
      * Generates a "neighboring" model, where one of the tunable parameters has been
      * randomly mutated within the allowed range.  Used for minimization
-     *
-     * @return
      */
     public abstract MovAvgModel neighboringModel();
 
@@ -111,7 +106,6 @@ public abstract class MovAvgModel {
     /**
      * Returns an empty set of predictions, filled with NaNs
      * @param numPredictions Number of empty predictions to generate
-     * @return
      */
     protected double[] emptyPredictions(int numPredictions) {
         double[] predictions = new double[numPredictions];
@@ -123,29 +117,26 @@ public abstract class MovAvgModel {
      * Write the model to the output stream
      *
      * @param out   Output stream
-     * @throws IOException
      */
+    @Override
     public abstract void writeTo(StreamOutput out) throws IOException;
 
     /**
      * Clone the model, returning an exact copy
-     *
-     * @return
      */
+    @Override
     public abstract MovAvgModel clone();
+
+    @Override
+    public abstract int hashCode();
+
+    @Override
+    public abstract boolean equals(Object obj);
 
     /**
      * Abstract class which also provides some concrete parsing functionality.
      */
     public abstract static class AbstractModelParser {
-
-        /**
-         * Returns the name of the model
-         *
-         * @return The model's name
-         */
-        public abstract String getName();
-
         /**
          * Parse a settings hash that is specific to this model
          *
@@ -155,7 +146,8 @@ public abstract class MovAvgModel {
          * @param parseFieldMatcher  Matcher for field names
          * @return                   A fully built moving average model
          */
-        public abstract MovAvgModel parse(@Nullable Map<String, Object> settings, String pipelineName, int windowSize, ParseFieldMatcher parseFieldMatcher) throws ParseException;
+        public abstract MovAvgModel parse(@Nullable Map<String, Object> settings, String pipelineName,
+                                          int windowSize, ParseFieldMatcher parseFieldMatcher) throws ParseException;
 
 
         /**
@@ -164,9 +156,6 @@ public abstract class MovAvgModel {
          * @param settings      Map of settings provided to this model
          * @param name          Name of parameter we are attempting to extract
          * @param defaultValue  Default value to be used if value does not exist in map
-         *
-         * @throws ParseException
-         *
          * @return Double value extracted from settings map
          */
         protected double parseDoubleParam(@Nullable Map<String, Object> settings, String name, double defaultValue) throws ParseException {
@@ -180,6 +169,7 @@ public abstract class MovAvgModel {
             } else if (value instanceof Number) {
                 double v = ((Number) value).doubleValue();
                 if (v >= 0 && v <= 1) {
+                    settings.remove(name);
                     return v;
                 }
 
@@ -197,9 +187,6 @@ public abstract class MovAvgModel {
          * @param settings      Map of settings provided to this model
          * @param name          Name of parameter we are attempting to extract
          * @param defaultValue  Default value to be used if value does not exist in map
-         *
-         * @throws ParseException
-         *
          * @return Integer value extracted from settings map
          */
         protected int parseIntegerParam(@Nullable Map<String, Object> settings, String name, int defaultValue) throws ParseException {
@@ -211,6 +198,7 @@ public abstract class MovAvgModel {
             if (value == null) {
                 return defaultValue;
             } else if (value instanceof Number) {
+                settings.remove(name);
                 return ((Number) value).intValue();
             }
 
@@ -224,9 +212,6 @@ public abstract class MovAvgModel {
          * @param settings      Map of settings provided to this model
          * @param name          Name of parameter we are attempting to extract
          * @param defaultValue  Default value to be used if value does not exist in map
-         *
-         * @throws SearchParseException
-         *
          * @return Boolean value extracted from settings map
          */
         protected boolean parseBoolParam(@Nullable Map<String, Object> settings, String name, boolean defaultValue) throws ParseException {
@@ -238,11 +223,18 @@ public abstract class MovAvgModel {
             if (value == null) {
                 return defaultValue;
             } else if (value instanceof Boolean) {
+                settings.remove(name);
                 return (Boolean)value;
             }
 
             throw new ParseException("Parameter [" + name + "] must be a boolean, type `"
                     + value.getClass().getSimpleName() + "` provided instead", 0);
+        }
+
+        protected void checkUnrecognizedParams(@Nullable Map<String, Object> settings) throws ParseException {
+            if (settings != null && settings.size() > 0) {
+                throw new ParseException("Unrecognized parameter(s): [" + settings.keySet() + "]", 0);
+            }
         }
     }
 

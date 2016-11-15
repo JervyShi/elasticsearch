@@ -18,38 +18,45 @@
  */
 package org.elasticsearch.search.aggregations.metrics.percentiles;
 
-import org.elasticsearch.search.aggregations.AggregatorFactory;
+import org.elasticsearch.common.ParseField;
 import org.elasticsearch.search.aggregations.support.ValuesSource.Numeric;
-import org.elasticsearch.search.aggregations.support.ValuesSourceConfig;
-import org.elasticsearch.search.internal.SearchContext;
+import org.elasticsearch.search.aggregations.support.ValuesSourceAggregationBuilder;
 
-/**
- *
- */
 public class PercentilesParser extends AbstractPercentilesParser {
+
+    public static final ParseField PERCENTS_FIELD = new ParseField("percents");
 
     public PercentilesParser() {
         super(true);
     }
 
-    private final static double[] DEFAULT_PERCENTS = new double[] { 1, 5, 25, 50, 75, 95, 99 };
+    public static final double[] DEFAULT_PERCENTS = new double[] { 1, 5, 25, 50, 75, 95, 99 };
 
     @Override
-    public String type() {
-        return InternalPercentiles.TYPE.name();
+    protected ParseField keysField() {
+        return PERCENTS_FIELD;
     }
 
     @Override
-    protected String keysFieldName() {
-        return "percents";
-    }
-    
-    @Override
-    protected AggregatorFactory buildFactory(SearchContext context, String aggregationName, ValuesSourceConfig<Numeric> valuesSourceConfig, double[] keys, double compression, boolean keyed) {
-        if (keys == null) {
-            keys = DEFAULT_PERCENTS;
+    protected ValuesSourceAggregationBuilder<Numeric, ?> buildFactory(String aggregationName, double[] keys, PercentilesMethod method,
+                                                                      Double compression, Integer numberOfSignificantValueDigits,
+                                                                      Boolean keyed) {
+        PercentilesAggregationBuilder factory = new PercentilesAggregationBuilder(aggregationName);
+        if (keys != null) {
+            factory.percentiles(keys);
         }
-        return new PercentilesAggregator.Factory(aggregationName, valuesSourceConfig, keys, compression, keyed);
+        if (method != null) {
+            factory.method(method);
+        }
+        if (compression != null) {
+            factory.compression(compression);
+        }
+        if (numberOfSignificantValueDigits != null) {
+            factory.numberOfSignificantValueDigits(numberOfSignificantValueDigits);
+        }
+        if (keyed != null) {
+            factory.keyed(keyed);
+        }
+        return factory;
     }
-
 }

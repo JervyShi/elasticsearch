@@ -25,11 +25,17 @@ import com.fasterxml.jackson.core.JsonGenerator;
 import com.fasterxml.jackson.core.JsonParser;
 import org.elasticsearch.common.bytes.BytesReference;
 import org.elasticsearch.common.io.FastStringReader;
-import org.elasticsearch.common.util.CollectionUtils;
-import org.elasticsearch.common.xcontent.*;
-import org.elasticsearch.common.xcontent.support.filtering.FilteringJsonGenerator;
+import org.elasticsearch.common.xcontent.XContent;
+import org.elasticsearch.common.xcontent.XContentBuilder;
+import org.elasticsearch.common.xcontent.XContentGenerator;
+import org.elasticsearch.common.xcontent.XContentParser;
+import org.elasticsearch.common.xcontent.XContentType;
 
-import java.io.*;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.io.Reader;
+import java.util.Set;
 
 /**
  * A JSON based content implementation using Jackson.
@@ -40,15 +46,16 @@ public class JsonXContent implements XContent {
         return XContentBuilder.builder(jsonXContent);
     }
 
-    private final static JsonFactory jsonFactory;
-    public final static JsonXContent jsonXContent;
+    private static final JsonFactory jsonFactory;
+    public static final JsonXContent jsonXContent;
 
     static {
         jsonFactory = new JsonFactory();
-        jsonFactory.configure(JsonParser.Feature.ALLOW_UNQUOTED_FIELD_NAMES, true);
         jsonFactory.configure(JsonGenerator.Feature.QUOTE_FIELD_NAMES, true);
         jsonFactory.configure(JsonParser.Feature.ALLOW_COMMENTS, true);
         jsonFactory.configure(JsonFactory.Feature.FAIL_ON_SYMBOL_HASH_OVERFLOW, false); // this trips on many mappings now...
+        // Do not automatically close unclosed objects/arrays in com.fasterxml.jackson.core.json.UTF8JsonGenerator#close() method
+        jsonFactory.configure(JsonGenerator.Feature.AUTO_CLOSE_JSON_CONTENT, false);
         jsonXContent = new JsonXContent();
     }
 
@@ -65,27 +72,9 @@ public class JsonXContent implements XContent {
         return '\n';
     }
 
-    private XContentGenerator newXContentGenerator(JsonGenerator jsonGenerator) {
-        return new JsonXContentGenerator(new BaseJsonGenerator(jsonGenerator));
-    }
-
     @Override
-    public XContentGenerator createGenerator(OutputStream os) throws IOException {
-        return newXContentGenerator(jsonFactory.createGenerator(os, JsonEncoding.UTF8));
-    }
-
-    @Override
-    public XContentGenerator createGenerator(OutputStream os, String[] filters) throws IOException {
-        if (CollectionUtils.isEmpty(filters)) {
-            return createGenerator(os);
-        }
-        FilteringJsonGenerator jsonGenerator = new FilteringJsonGenerator(jsonFactory.createGenerator(os, JsonEncoding.UTF8), filters);
-        return new JsonXContentGenerator(jsonGenerator);
-    }
-
-    @Override
-    public XContentGenerator createGenerator(Writer writer) throws IOException {
-        return newXContentGenerator(jsonFactory.createGenerator(writer));
+    public XContentGenerator createGenerator(OutputStream os, Set<String> includes, Set<String> excludes) throws IOException {
+        return new JsonXContentGenerator(jsonFactory.createGenerator(os, JsonEncoding.UTF8), os, includes, excludes);
     }
 
     @Override
@@ -110,9 +99,6 @@ public class JsonXContent implements XContent {
 
     @Override
     public XContentParser createParser(BytesReference bytes) throws IOException {
-        if (bytes.hasArray()) {
-            return createParser(bytes.array(), bytes.arrayOffset(), bytes.length());
-        }
         return createParser(bytes.streamInput());
     }
 

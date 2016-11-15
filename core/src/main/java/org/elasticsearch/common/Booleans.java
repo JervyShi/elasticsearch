@@ -19,9 +19,6 @@
 
 package org.elasticsearch.common;
 
-/**
- *
- */
 public class Booleans {
 
     /**
@@ -80,12 +77,10 @@ public class Booleans {
 
     /***
      *
-     * @param value
      * @return true/false
      * throws exception if string cannot be parsed to boolean
      */
     public static Boolean parseBooleanExact(String value) {
-
         boolean isFalse = isExplicitFalse(value);
         if (isFalse) {
             return false;
@@ -95,7 +90,7 @@ public class Booleans {
             return true;
         }
 
-        throw new IllegalArgumentException("value cannot be parsed to boolean [ true/1/on/yes OR false/0/off/no ]  ");
+        throw new IllegalArgumentException("Failed to parse value [" + value + "] cannot be parsed to boolean [ true/1/on/yes OR false/0/off/no ]");
     }
 
     public static Boolean parseBoolean(String value, Boolean defaultValue) {

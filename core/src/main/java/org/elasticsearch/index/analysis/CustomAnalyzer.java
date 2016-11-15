@@ -25,9 +25,6 @@ import org.apache.lucene.analysis.Tokenizer;
 
 import java.io.Reader;
 
-/**
- *
- */
 public final class CustomAnalyzer extends Analyzer {
 
     private final TokenizerFactory tokenizerFactory;
@@ -44,11 +41,11 @@ public final class CustomAnalyzer extends Analyzer {
     }
 
     public CustomAnalyzer(TokenizerFactory tokenizerFactory, CharFilterFactory[] charFilters, TokenFilterFactory[] tokenFilters,
-                          int positionOffsetGap, int offsetGap) {
+                          int positionIncrementGap, int offsetGap) {
         this.tokenizerFactory = tokenizerFactory;
         this.charFilters = charFilters;
         this.tokenFilters = tokenFilters;
-        this.positionIncrementGap = positionOffsetGap;
+        this.positionIncrementGap = positionIncrementGap;
         this.offsetGap = offsetGap;
     }
 

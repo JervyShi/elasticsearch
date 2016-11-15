@@ -19,40 +19,37 @@
 
 package org.elasticsearch.action.admin.indices.stats;
 
-import org.elasticsearch.action.support.broadcast.BroadcastShardResponse;
 import org.elasticsearch.cluster.routing.ShardRouting;
 import org.elasticsearch.common.Nullable;
 import org.elasticsearch.common.io.stream.StreamInput;
 import org.elasticsearch.common.io.stream.StreamOutput;
+import org.elasticsearch.common.io.stream.Streamable;
 import org.elasticsearch.common.xcontent.ToXContent;
 import org.elasticsearch.common.xcontent.XContentBuilder;
-import org.elasticsearch.common.xcontent.XContentBuilderString;
 import org.elasticsearch.index.engine.CommitStats;
-import org.elasticsearch.index.shard.IndexShard;
+import org.elasticsearch.index.shard.ShardPath;
 
 import java.io.IOException;
 
-import static org.elasticsearch.cluster.routing.ShardRouting.readShardRoutingEntry;
-
-/**
- */
-public class ShardStats extends BroadcastShardResponse implements ToXContent {
-
+public class ShardStats implements Streamable, ToXContent {
     private ShardRouting shardRouting;
-
-    CommonStats commonStats;
-
+    private CommonStats commonStats;
     @Nullable
-    CommitStats commitStats;
+    private CommitStats commitStats;
+    private String dataPath;
+    private String statePath;
+    private boolean isCustomDataPath;
 
     ShardStats() {
     }
 
-    public ShardStats(IndexShard indexShard, ShardRouting shardRouting, CommonStatsFlags flags) {
-        super(indexShard.shardId());
-        this.shardRouting = shardRouting;
-        this.commonStats = new CommonStats(indexShard, flags);
-        this.commitStats = indexShard.commitStats();
+    public ShardStats(ShardRouting routing, ShardPath shardPath, CommonStats commonStats, CommitStats commitStats) {
+        this.shardRouting = routing;
+        this.dataPath = shardPath.getRootDataPath().toString();
+        this.statePath = shardPath.getRootStatePath().toString();
+        this.isCustomDataPath = shardPath.isCustomDataPath();
+        this.commitStats = commitStats;
+        this.commonStats = commonStats;
     }
 
     /**
@@ -70,6 +67,18 @@ public class ShardStats extends BroadcastShardResponse implements ToXContent {
         return this.commitStats;
     }
 
+    public String getDataPath() {
+        return dataPath;
+    }
+
+    public String getStatePath() {
+        return statePath;
+    }
+
+    public boolean isCustomDataPath() {
+        return isCustomDataPath;
+    }
+
     public static ShardStats readShardStats(StreamInput in) throws IOException {
         ShardStats stats = new ShardStats();
         stats.readFrom(in);
@@ -78,18 +87,22 @@ public class ShardStats extends BroadcastShardResponse implements ToXContent {
 
     @Override
     public void readFrom(StreamInput in) throws IOException {
-        super.readFrom(in);
-        shardRouting = readShardRoutingEntry(in);
-        commonStats = CommonStats.readCommonStats(in);
+        shardRouting = new ShardRouting(in);
+        commonStats = new CommonStats(in);
         commitStats = CommitStats.readOptionalCommitStatsFrom(in);
+        statePath = in.readString();
+        dataPath = in.readString();
+        isCustomDataPath = in.readBoolean();
     }
 
     @Override
     public void writeTo(StreamOutput out) throws IOException {
-        super.writeTo(out);
         shardRouting.writeTo(out);
         commonStats.writeTo(out);
         out.writeOptionalStreamable(commitStats);
+        out.writeString(statePath);
+        out.writeString(dataPath);
+        out.writeBoolean(isCustomDataPath);
     }
 
     @Override
@@ -105,15 +118,23 @@ public class ShardStats extends BroadcastShardResponse implements ToXContent {
         if (commitStats != null) {
             commitStats.toXContent(builder, params);
         }
+        builder.startObject(Fields.SHARD_PATH);
+        builder.field(Fields.STATE_PATH, statePath);
+        builder.field(Fields.DATA_PATH, dataPath);
+        builder.field(Fields.IS_CUSTOM_DATA_PATH, isCustomDataPath);
+        builder.endObject();
         return builder;
     }
 
     static final class Fields {
-        static final XContentBuilderString ROUTING = new XContentBuilderString("routing");
-        static final XContentBuilderString STATE = new XContentBuilderString("state");
-        static final XContentBuilderString PRIMARY = new XContentBuilderString("primary");
-        static final XContentBuilderString NODE = new XContentBuilderString("node");
-        static final XContentBuilderString RELOCATING_NODE = new XContentBuilderString("relocating_node");
+        static final String ROUTING = "routing";
+        static final String STATE = "state";
+        static final String STATE_PATH = "state_path";
+        static final String DATA_PATH = "data_path";
+        static final String IS_CUSTOM_DATA_PATH = "is_custom_data_path";
+        static final String SHARD_PATH = "shard_path";
+        static final String PRIMARY = "primary";
+        static final String NODE = "node";
+        static final String RELOCATING_NODE = "relocating_node";
     }
-
 }

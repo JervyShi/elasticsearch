@@ -27,9 +27,6 @@ import org.elasticsearch.common.io.stream.StreamOutput;
 
 import java.io.IOException;
 
-/**
- *
- */
 public class ClusterStateResponse extends ActionResponse {
 
     private ClusterName clusterName;
@@ -54,7 +51,7 @@ public class ClusterStateResponse extends ActionResponse {
     @Override
     public void readFrom(StreamInput in) throws IOException {
         super.readFrom(in);
-        clusterName = ClusterName.readClusterName(in);
+        clusterName = new ClusterName(in);
         clusterState = ClusterState.Builder.readFrom(in, null);
     }
 

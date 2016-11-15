@@ -25,9 +25,6 @@ import java.io.EOFException;
 import java.io.IOException;
 import java.io.InputStream;
 
-/**
- *
- */
 public class InputStreamStreamInput extends StreamInput {
 
     private final InputStream is;
@@ -72,6 +69,11 @@ public class InputStreamStreamInput extends StreamInput {
     @Override
     public void close() throws IOException {
         is.close();
+    }
+
+    @Override
+    public int available() throws IOException {
+        return is.available();
     }
 
     @Override

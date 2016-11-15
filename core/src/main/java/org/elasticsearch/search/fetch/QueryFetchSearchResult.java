@@ -24,16 +24,12 @@ import org.elasticsearch.common.io.stream.StreamOutput;
 import org.elasticsearch.search.SearchShardTarget;
 import org.elasticsearch.search.query.QuerySearchResult;
 import org.elasticsearch.search.query.QuerySearchResultProvider;
-import org.elasticsearch.transport.TransportResponse;
 
 import java.io.IOException;
 
 import static org.elasticsearch.search.fetch.FetchSearchResult.readFetchSearchResult;
 import static org.elasticsearch.search.query.QuerySearchResult.readQuerySearchResult;
 
-/**
- *
- */
 public class QueryFetchSearchResult extends QuerySearchResultProvider implements FetchSearchResultProvider {
 
     private QuerySearchResult queryResult;

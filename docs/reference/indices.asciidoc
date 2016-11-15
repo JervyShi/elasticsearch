@@ -4,8 +4,7 @@
 [partintro]
 --
 The indices APIs are used to manage individual indices,
-index settings, aliases, mappings, index templates
-and warmers.
+index settings, aliases, mappings, and index templates.
 
 [float]
 [[index-management]]
@@ -16,6 +15,8 @@ and warmers.
 * <<indices-get-index>>
 * <<indices-exists>>
 * <<indices-open-close>>
+* <<indices-shrink-index>>
+* <<indices-rollover-index>>
 
 [float]
 [[mapping-management]]
@@ -38,7 +39,6 @@ and warmers.
 * <<indices-get-settings>>
 * <<indices-analyze>>
 * <<indices-templates>>
-* <<indices-warmers>>
 
 [float]
 [[shadow-replicas]]
@@ -51,6 +51,7 @@ and warmers.
 * <<indices-stats>>
 * <<indices-segments>>
 * <<indices-recovery>>
+* <<indices-shards-stores>>
 
 [float]
 [[status-management]]
@@ -58,8 +59,7 @@ and warmers.
 * <<indices-clearcache>>
 * <<indices-refresh>>
 * <<indices-flush>>
-* <<indices-optimize>>
-* <<indices-upgrade>>
+* <<indices-forcemerge>>
 
 --
 
@@ -72,6 +72,10 @@ include::indices/get-index.asciidoc[]
 include::indices/indices-exists.asciidoc[]
 
 include::indices/open-close.asciidoc[]
+
+include::indices/shrink-index.asciidoc[]
+
+include::indices/rollover-index.asciidoc[]
 
 include::indices/put-mapping.asciidoc[]
 
@@ -91,7 +95,7 @@ include::indices/analyze.asciidoc[]
 
 include::indices/templates.asciidoc[]
 
-include::indices/warmers.asciidoc[]
+include::indices/shadow-replicas.asciidoc[]
 
 include::indices/stats.asciidoc[]
 
@@ -99,15 +103,13 @@ include::indices/segments.asciidoc[]
 
 include::indices/recovery.asciidoc[]
 
+include::indices/shard-stores.asciidoc[]
+
 include::indices/clearcache.asciidoc[]
 
 include::indices/flush.asciidoc[]
 
 include::indices/refresh.asciidoc[]
 
-include::indices/optimize.asciidoc[]
-
-include::indices/shadow-replicas.asciidoc[]
-
-include::indices/upgrade.asciidoc[]
+include::indices/forcemerge.asciidoc[]
 

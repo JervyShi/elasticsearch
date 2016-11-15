@@ -19,26 +19,24 @@
 
 package org.elasticsearch.index.engine;
 
+import org.elasticsearch.ElasticsearchException;
 import org.elasticsearch.common.io.stream.StreamInput;
-import org.elasticsearch.index.shard.IndexShardException;
 import org.elasticsearch.index.shard.ShardId;
 
 import java.io.IOException;
 
-/**
- *
- */
-public class EngineException extends IndexShardException {
+public class EngineException extends ElasticsearchException {
 
-    public EngineException(ShardId shardId, String msg) {
-        super(shardId, msg);
+    public EngineException(ShardId shardId, String msg, Object... params) {
+        this(shardId, msg, null, params);
     }
 
-    public EngineException(ShardId shardId, String msg, Throwable cause) {
-        super(shardId, msg, cause);
+    public EngineException(ShardId shardId, String msg, Throwable cause, Object... params) {
+        super(msg, cause, params);
+        setShard(shardId);
     }
 
-    public EngineException(StreamInput in) throws IOException{
+    public EngineException(StreamInput in) throws IOException {
         super(in);
     }
 }

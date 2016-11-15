@@ -19,87 +19,237 @@
 
 package org.elasticsearch.plugins;
 
+import java.util.Collection;
+import java.util.Collections;
+import java.util.List;
+
+import org.elasticsearch.action.ActionModule;
+import org.elasticsearch.client.Client;
+import org.elasticsearch.cluster.ClusterModule;
+import org.elasticsearch.cluster.metadata.MetaData;
+import org.elasticsearch.cluster.service.ClusterService;
 import org.elasticsearch.common.component.LifecycleComponent;
 import org.elasticsearch.common.inject.Module;
+import org.elasticsearch.common.io.stream.NamedWriteable;
+import org.elasticsearch.common.io.stream.NamedWriteableRegistry;
+import org.elasticsearch.common.network.NetworkModule;
+import org.elasticsearch.common.settings.Setting;
 import org.elasticsearch.common.settings.Settings;
+import org.elasticsearch.common.settings.SettingsModule;
+import org.elasticsearch.discovery.DiscoveryModule;
+import org.elasticsearch.index.IndexModule;
+import org.elasticsearch.indices.analysis.AnalysisModule;
+import org.elasticsearch.repositories.RepositoriesModule;
+import org.elasticsearch.script.ScriptModule;
+import org.elasticsearch.script.ScriptService;
+import org.elasticsearch.search.SearchModule;
+import org.elasticsearch.search.SearchRequestParsers;
+import org.elasticsearch.threadpool.ExecutorBuilder;
+import org.elasticsearch.threadpool.ThreadPool;
+import org.elasticsearch.watcher.ResourceWatcherService;
 
-import java.io.Closeable;
-import java.util.Collection;
+import java.util.Map;
+import java.util.function.UnaryOperator;
 
 /**
- * An extension point allowing to plug in custom functionality.
- * <p/>
- * A plugin can be dynamically injected with {@link Module} by implementing <tt>onModule(AnyModule)</tt> method
- * removing the need to override {@link #processModule(org.elasticsearch.common.inject.Module)} and check using
- * instanceof.
+ * An extension point allowing to plug in custom functionality. This class has a number of extension points that are available to all
+ * plugins, in addition you can implement any of the following interfaces to further customize Elasticsearch:
+ * <ul>
+ * <li>{@link ActionPlugin}
+ * <li>{@link AnalysisPlugin}
+ * <li>{@link ClusterPlugin}
+ * <li>{@link DiscoveryPlugin}
+ * <li>{@link IngestPlugin}
+ * <li>{@link MapperPlugin}
+ * <li>{@link NetworkPlugin}
+ * <li>{@link RepositoryPlugin}
+ * <li>{@link ScriptPlugin}
+ * <li>{@link SearchPlugin}
+ * </ul>
+ * <p>In addition to extension points this class also declares some {@code @Deprecated} {@code public final void onModule} methods. These
+ * methods should cause any extensions of {@linkplain Plugin} that used the pre-5.x style extension syntax to fail to build and point the
+ * plugin author at the new extension syntax. We hope that these make the process of upgrading a plugin from 2.x to 5.x only mildly painful.
  */
-public interface Plugin {
+public abstract class Plugin {
 
     /**
-     * The name of the plugin.
+     * Node level guice modules.
      */
-    String name();
+    public Collection<Module> createGuiceModules() {
+        return Collections.emptyList();
+    }
 
     /**
-     * The description of the plugin.
+     * Node level services that will be automatically started/stopped/closed. This classes must be constructed
+     * by injection with guice.
      */
-    String description();
+    public Collection<Class<? extends LifecycleComponent>> getGuiceServiceClasses() {
+        return Collections.emptyList();
+    }
 
     /**
-     * Node level modules (classes, will automatically be created).
-     */
-    Collection<Class<? extends Module>> modules();
-
-    /**
-     * Node level modules (instances)
+     * Returns components added by this plugin.
      *
-     * @param settings The node level settings.
+     * Any components returned that implement {@link LifecycleComponent} will have their lifecycle managed.
+     * Note: To aid in the migration away from guice, all objects returned as components will be bound in guice
+     * to themselves.
+     *
+     * @param client A client to make requests to the system
+     * @param clusterService A service to allow watching and updating cluster state
+     * @param threadPool A service to allow retrieving an executor to run an async action
+     * @param resourceWatcherService A service to watch for changes to node local files
+     * @param scriptService A service to allow running scripts on the local node
+     * @param searchRequestParsers Parsers for search requests which may be used to templatize search requests
      */
-    Collection<? extends Module> modules(Settings settings);
+    public Collection<Object> createComponents(Client client, ClusterService clusterService, ThreadPool threadPool,
+                                               ResourceWatcherService resourceWatcherService, ScriptService scriptService,
+                                               SearchRequestParsers searchRequestParsers) {
+        return Collections.emptyList();
+    }
 
     /**
-     * Node level services that will be automatically started/stopped/closed.
+     * Additional node settings loaded by the plugin. Note that settings that are explicit in the nodes settings can't be
+     * overwritten with the additional settings. These settings added if they don't exist.
      */
-    Collection<Class<? extends LifecycleComponent>> services();
+    public Settings additionalSettings() {
+        return Settings.Builder.EMPTY_SETTINGS;
+    }
 
     /**
-     * Per index modules.
+     * Returns parsers for {@link NamedWriteable} this plugin will use over the transport protocol.
+     * @see NamedWriteableRegistry
      */
-    Collection<Class<? extends Module>> indexModules();
+    public List<NamedWriteableRegistry.Entry> getNamedWriteables() {
+        return Collections.emptyList();
+    }
 
     /**
-     * Per index modules.
+     * Called before a new index is created on a node. The given module can be used to register index-level
+     * extensions.
      */
-    Collection<? extends Module> indexModules(Settings settings);
+    public void onIndexModule(IndexModule indexModule) {}
 
     /**
-     * Per index services that will be automatically closed.
+     * Returns a list of additional {@link Setting} definitions for this plugin.
      */
-    Collection<Class<? extends Closeable>> indexServices();
+    public List<Setting<?>> getSettings() { return Collections.emptyList(); }
 
     /**
-     * Per index shard module.
+     * Returns a list of additional settings filter for this plugin
      */
-    Collection<Class<? extends Module>> shardModules();
+    public List<String> getSettingsFilter() { return Collections.emptyList(); }
 
     /**
-     * Per index shard module.
+     * Provides a function to modify global custom meta data on startup.
+     * <p>
+     * Plugins should return the input custom map via {@link UnaryOperator#identity()} if no upgrade is required.
+     * @return Never {@code null}. The same or upgraded {@code MetaData.Custom} map.
+     * @throws IllegalStateException if the node should not start because at least one {@code MetaData.Custom}
+     *         is unsupported
      */
-    Collection<? extends Module> shardModules(Settings settings);
+    public UnaryOperator<Map<String, MetaData.Custom>> getCustomMetaDataUpgrader() {
+        return UnaryOperator.identity();
+    }
 
     /**
-     * Per index shard service that will be automatically closed.
+     * Provides the list of this plugin's custom thread pools, empty if
+     * none.
+     *
+     * @param settings the current settings
+     * @return executors builders for this plugin's custom thread pools
      */
-    Collection<Class<? extends Closeable>> shardServices();
+    public List<ExecutorBuilder<?>> getExecutorBuilders(Settings settings) {
+        return Collections.emptyList();
+    }
 
     /**
-     * Process a specific module. Note, its simpler to implement a custom <tt>onModule(AnyModule module)</tt>
-     * method, which will be automatically be called by the relevant type.
+     * Old-style guice index level extension point. {@code @Deprecated} and {@code final} to act as a signpost for plugin authors upgrading
+     * from 2.x.
+     *
+     * @deprecated use #onIndexModule instead
      */
-    void processModule(Module module);
+    @Deprecated
+    public final void onModule(IndexModule indexModule) {}
+
 
     /**
-     * Additional node settings loaded by the plugin
+     * Old-style guice settings extension point. {@code @Deprecated} and {@code final} to act as a signpost for plugin authors upgrading
+     * from 2.x.
+     *
+     * @deprecated use #getSettings and #getSettingsFilter instead
      */
-    Settings additionalSettings();
+    @Deprecated
+    public final void onModule(SettingsModule settingsModule) {}
+
+    /**
+     * Old-style guice scripting extension point. {@code @Deprecated} and {@code final} to act as a signpost for plugin authors upgrading
+     * from 2.x.
+     *
+     * @deprecated implement {@link ScriptPlugin} instead
+     */
+    @Deprecated
+    public final void onModule(ScriptModule module) {}
+
+    /**
+     * Old-style analysis extension point. {@code @Deprecated} and {@code final} to act as a signpost for plugin authors upgrading
+     * from 2.x.
+     *
+     * @deprecated implement {@link AnalysisPlugin} instead
+     */
+    @Deprecated
+    public final void onModule(AnalysisModule module) {}
+
+    /**
+     * Old-style action extension point. {@code @Deprecated} and {@code final} to act as a signpost for plugin authors upgrading
+     * from 2.x.
+     *
+     * @deprecated implement {@link ActionPlugin} instead
+     */
+    @Deprecated
+    public final void onModule(ActionModule module) {}
+
+    /**
+     * Old-style search extension point. {@code @Deprecated} and {@code final} to act as a signpost for plugin authors upgrading
+     * from 2.x.
+     *
+     * @deprecated implement {@link SearchPlugin} instead
+     */
+    @Deprecated
+    public final void onModule(SearchModule module) {}
+
+    /**
+     * Old-style network extension point. {@code @Deprecated} and {@code final} to act as a signpost for plugin authors upgrading
+     * from 2.x.
+     *
+     * @deprecated implement {@link NetworkPlugin} instead
+     */
+    @Deprecated
+    public final void onModule(NetworkModule module) {}
+
+    /**
+     * Old-style snapshot/restore extension point. {@code @Deprecated} and {@code final} to act as a signpost for plugin authors upgrading
+     * from 2.x.
+     *
+     * @deprecated implement {@link RepositoryPlugin} instead
+     */
+    @Deprecated
+    public final void onModule(RepositoriesModule module) {}
+
+    /**
+     * Old-style cluster extension point. {@code @Deprecated} and {@code final} to act as a signpost for plugin authors upgrading
+     * from 2.x.
+     *
+     * @deprecated implement {@link ClusterPlugin} instead
+     */
+    @Deprecated
+    public final void onModule(ClusterModule module) {}
+
+    /**
+     * Old-style discovery extension point. {@code @Deprecated} and {@code final} to act as a signpost for plugin authors upgrading
+     * from 2.x.
+     *
+     * @deprecated implement {@link DiscoveryPlugin} instead
+     */
+    @Deprecated
+    public final void onModule(DiscoveryModule module) {}
 }

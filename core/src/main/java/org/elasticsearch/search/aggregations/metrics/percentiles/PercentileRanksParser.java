@@ -18,37 +18,43 @@
  */
 package org.elasticsearch.search.aggregations.metrics.percentiles;
 
-import org.elasticsearch.search.SearchParseException;
-import org.elasticsearch.search.aggregations.AggregatorFactory;
+import org.elasticsearch.common.ParseField;
 import org.elasticsearch.search.aggregations.support.ValuesSource.Numeric;
-import org.elasticsearch.search.aggregations.support.ValuesSourceConfig;
-import org.elasticsearch.search.internal.SearchContext;
+import org.elasticsearch.search.aggregations.support.ValuesSourceAggregationBuilder;
 
-/**
- *
- */
 public class PercentileRanksParser extends AbstractPercentilesParser {
+
+    public static final ParseField VALUES_FIELD = new ParseField("values");
 
     public PercentileRanksParser() {
         super(false);
     }
 
     @Override
-    public String type() {
-        return InternalPercentileRanks.TYPE.name();
+    protected ParseField keysField() {
+        return VALUES_FIELD;
     }
 
     @Override
-    protected String keysFieldName() {
-        return "values";
-    }
-    
-    @Override
-    protected AggregatorFactory buildFactory(SearchContext context, String aggregationName, ValuesSourceConfig<Numeric> valuesSourceConfig, double[] keys, double compression, boolean keyed) {
-        if (keys == null) {
-            throw new SearchParseException(context, "Missing token values in [" + aggregationName + "].", null);
+    protected ValuesSourceAggregationBuilder<Numeric, ?> buildFactory(String aggregationName, double[] keys, PercentilesMethod method,
+                                                                      Double compression, Integer numberOfSignificantValueDigits,
+                                                                      Boolean keyed) {
+        PercentileRanksAggregationBuilder factory = new PercentileRanksAggregationBuilder(aggregationName);
+        if (keys != null) {
+            factory.values(keys);
         }
-        return new PercentileRanksAggregator.Factory(aggregationName, valuesSourceConfig, keys, compression, keyed);
+        if (method != null) {
+            factory.method(method);
+        }
+        if (compression != null) {
+            factory.compression(compression);
+        }
+        if (numberOfSignificantValueDigits != null) {
+            factory.numberOfSignificantValueDigits(numberOfSignificantValueDigits);
+        }
+        if (keyed != null) {
+            factory.keyed(keyed);
+        }
+        return factory;
     }
-
 }

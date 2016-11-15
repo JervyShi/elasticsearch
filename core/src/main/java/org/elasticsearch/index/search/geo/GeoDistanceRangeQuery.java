@@ -29,20 +29,22 @@ import org.apache.lucene.search.Query;
 import org.apache.lucene.search.Scorer;
 import org.apache.lucene.search.TwoPhaseIterator;
 import org.apache.lucene.search.Weight;
-import org.apache.lucene.util.Bits;
 import org.apache.lucene.util.NumericUtils;
 import org.elasticsearch.common.geo.GeoDistance;
 import org.elasticsearch.common.geo.GeoPoint;
 import org.elasticsearch.common.unit.DistanceUnit;
 import org.elasticsearch.index.fielddata.IndexGeoPointFieldData;
 import org.elasticsearch.index.fielddata.MultiGeoPointValues;
-import org.elasticsearch.index.mapper.geo.GeoPointFieldMapper;
+import org.elasticsearch.index.mapper.LegacyGeoPointFieldMapper;
+import org.elasticsearch.index.query.QueryShardContext;
 
 import java.io.IOException;
 
 /**
- *
+ * Query geo_point fields by distance ranges. Used for indexes created prior to 2.2
+ * @deprecated
  */
+@Deprecated
 public class GeoDistanceRangeQuery extends Query {
 
     private final double lat;
@@ -58,8 +60,10 @@ public class GeoDistanceRangeQuery extends Query {
 
     private final IndexGeoPointFieldData indexFieldData;
 
-    public GeoDistanceRangeQuery(GeoPoint point, Double lowerVal, Double upperVal, boolean includeLower, boolean includeUpper, GeoDistance geoDistance, GeoPointFieldMapper.GeoPointFieldType fieldType, IndexGeoPointFieldData indexFieldData,
-                                  String optimizeBbox) {
+    public GeoDistanceRangeQuery(GeoPoint point, Double lowerVal, Double upperVal, boolean includeLower,
+                                 boolean includeUpper, GeoDistance geoDistance,
+                                 LegacyGeoPointFieldMapper.LegacyGeoPointFieldType fieldType,
+            IndexGeoPointFieldData indexFieldData, String optimizeBbox, QueryShardContext context) {
         this.lat = point.lat();
         this.lon = point.lon();
         this.geoDistance = geoDistance;
@@ -91,7 +95,8 @@ public class GeoDistanceRangeQuery extends Query {
             if ("memory".equals(optimizeBbox)) {
                 boundingBoxFilter = null;
             } else if ("indexed".equals(optimizeBbox)) {
-                boundingBoxFilter = IndexedGeoBoundingBoxQuery.create(distanceBoundingCheck.topLeft(), distanceBoundingCheck.bottomRight(), fieldType);
+                boundingBoxFilter = LegacyIndexedGeoBoundingBoxQuery.create(distanceBoundingCheck.topLeft(),
+                        distanceBoundingCheck.bottomRight(), fieldType, context);
                 distanceBoundingCheck = GeoDistance.ALWAYS_INSTANCE; // fine, we do the bounding box check using the filter
             } else {
                 throw new IllegalArgumentException("type [" + optimizeBbox + "] for bounding box optimization not supported");
@@ -123,7 +128,7 @@ public class GeoDistanceRangeQuery extends Query {
     }
 
     public String fieldName() {
-        return indexFieldData.getFieldNames().indexName();
+        return indexFieldData.getFieldName();
     }
 
     @Override
@@ -141,25 +146,23 @@ public class GeoDistanceRangeQuery extends Query {
         }
         return new ConstantScoreWeight(this) {
             @Override
-            public Scorer scorer(LeafReaderContext context, final Bits acceptDocs) throws IOException {
+            public Scorer scorer(LeafReaderContext context) throws IOException {
                 final DocIdSetIterator approximation;
                 if (boundingBoxWeight != null) {
-                    approximation = boundingBoxWeight.scorer(context, null);
+                    Scorer s = boundingBoxWeight.scorer(context);
+                    if (s == null) {
+                        // if the approximation does not match anything, we're done
+                        return null;
+                    }
+                    approximation = s.iterator();
                 } else {
                     approximation = DocIdSetIterator.all(context.reader().maxDoc());
-                }
-                if (approximation == null) {
-                    // if the approximation does not match anything, we're done
-                    return null;
                 }
                 final MultiGeoPointValues values = indexFieldData.load(context).getGeoPointValues();
                 final TwoPhaseIterator twoPhaseIterator = new TwoPhaseIterator(approximation) {
                     @Override
                     public boolean matches() throws IOException {
                         final int doc = approximation.docID();
-                        if (acceptDocs != null && acceptDocs.get(doc) == false) {
-                            return false;
-                        }
                         values.setDocument(doc);
                         final int length = values.count();
                         for (int i = 0; i < length; i++) {
@@ -173,6 +176,16 @@ public class GeoDistanceRangeQuery extends Query {
                         }
                         return false;
                     }
+
+                    @Override
+                    public float matchCost() {
+                        if (distanceBoundingCheck == GeoDistance.ALWAYS_INSTANCE) {
+                            return 0.0f;
+                        } else {
+                            // TODO: is this right (up to 4 comparisons from GeoDistance.SimpleDistanceBoundingCheck)?
+                            return 4.0f;
+                        }
+                    }
                 };
                 return new ConstantScoreScorer(this, score(), twoPhaseIterator);
             }
@@ -182,7 +195,7 @@ public class GeoDistanceRangeQuery extends Query {
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;
-        if (super.equals(o) == false) return false;
+        if (sameClassAs(o) == false) return false;
 
         GeoDistanceRangeQuery filter = (GeoDistanceRangeQuery) o;
 
@@ -190,7 +203,7 @@ public class GeoDistanceRangeQuery extends Query {
         if (Double.compare(filter.inclusiveUpperPoint, inclusiveUpperPoint) != 0) return false;
         if (Double.compare(filter.lat, lat) != 0) return false;
         if (Double.compare(filter.lon, lon) != 0) return false;
-        if (!indexFieldData.getFieldNames().indexName().equals(filter.indexFieldData.getFieldNames().indexName()))
+        if (!indexFieldData.getFieldName().equals(filter.indexFieldData.getFieldName()))
             return false;
         if (geoDistance != filter.geoDistance) return false;
 
@@ -199,23 +212,24 @@ public class GeoDistanceRangeQuery extends Query {
 
     @Override
     public String toString(String field) {
-        return "GeoDistanceRangeFilter(" + indexFieldData.getFieldNames().indexName() + ", " + geoDistance + ", [" + inclusiveLowerPoint + " - " + inclusiveUpperPoint + "], " + lat + ", " + lon + ")";
+        return "GeoDistanceRangeQuery(" + indexFieldData.getFieldName() + ", " + geoDistance + ", ["
+            + inclusiveLowerPoint + " - " + inclusiveUpperPoint + "], " + lat + ", " + lon + ")";
     }
 
     @Override
     public int hashCode() {
-        int result = super.hashCode();
+        int result = classHash();
         long temp;
         temp = lat != +0.0d ? Double.doubleToLongBits(lat) : 0L;
-        result = 31 * result + (int) (temp ^ (temp >>> 32));
+        result = 31 * result + Long.hashCode(temp);
         temp = lon != +0.0d ? Double.doubleToLongBits(lon) : 0L;
-        result = 31 * result + (int) (temp ^ (temp >>> 32));
+        result = 31 * result + Long.hashCode(temp);
         temp = inclusiveLowerPoint != +0.0d ? Double.doubleToLongBits(inclusiveLowerPoint) : 0L;
-        result = 31 * result + (int) (temp ^ (temp >>> 32));
+        result = 31 * result + Long.hashCode(temp);
         temp = inclusiveUpperPoint != +0.0d ? Double.doubleToLongBits(inclusiveUpperPoint) : 0L;
-        result = 31 * result + (int) (temp ^ (temp >>> 32));
+        result = 31 * result + Long.hashCode(temp);
         result = 31 * result + (geoDistance != null ? geoDistance.hashCode() : 0);
-        result = 31 * result + indexFieldData.getFieldNames().indexName().hashCode();
+        result = 31 * result + indexFieldData.getFieldName().hashCode();
         return result;
     }
 

@@ -19,28 +19,26 @@
 
 package org.elasticsearch.indices.recovery;
 
+import org.elasticsearch.ElasticsearchException;
 import org.elasticsearch.ElasticsearchWrapperException;
 import org.elasticsearch.common.io.stream.StreamInput;
 import org.elasticsearch.common.io.stream.StreamOutput;
 import org.elasticsearch.common.unit.ByteSizeValue;
-import org.elasticsearch.index.shard.IndexShardException;
 import org.elasticsearch.index.shard.ShardId;
 
 import java.io.IOException;
 import java.util.Objects;
 
-/**
- *
- */
-public class RecoverFilesRecoveryException extends IndexShardException implements ElasticsearchWrapperException {
+public class RecoverFilesRecoveryException extends ElasticsearchException implements ElasticsearchWrapperException {
 
     private final int numberOfFiles;
 
     private final ByteSizeValue totalFilesSize;
 
     public RecoverFilesRecoveryException(ShardId shardId, int numberOfFiles, ByteSizeValue totalFilesSize, Throwable cause) {
-        super(shardId, "Failed to transfer [" + numberOfFiles + "] files with total size of [" + totalFilesSize + "]", cause);
+        super("Failed to transfer [{}] files with total size of [{}]", cause, numberOfFiles, totalFilesSize);
         Objects.requireNonNull(totalFilesSize, "totalFilesSize must not be null");
+        setShard(shardId);
         this.numberOfFiles = numberOfFiles;
         this.totalFilesSize = totalFilesSize;
     }
@@ -56,7 +54,7 @@ public class RecoverFilesRecoveryException extends IndexShardException implement
     public RecoverFilesRecoveryException(StreamInput in) throws IOException{
         super(in);
         numberOfFiles = in.readInt();
-        totalFilesSize = ByteSizeValue.readBytesSizeValue(in);
+        totalFilesSize = new ByteSizeValue(in);
     }
 
     @Override

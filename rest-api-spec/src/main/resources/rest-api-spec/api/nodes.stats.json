@@ -15,7 +15,7 @@
       "parts": {
         "metric" : {
           "type" : "list",
-          "options" : ["_all", "breaker", "fs", "http", "indices", "jvm", "os", "process", "thread_pool", "transport"],
+          "options" : ["_all", "breaker", "fs", "http", "indices", "jvm", "os", "process", "thread_pool", "transport", "discovery"],
           "description" : "Limit the information returned to the specified metrics"
         },
         "index_metric" : {
@@ -52,13 +52,17 @@
         },
         "level": {
           "type" : "enum",
-          "description": "Return indices stats aggregated at node, index or shard level",
-          "options" : ["node", "indices", "shards"],
+          "description": "Return indices stats aggregated at index, node or shard level",
+          "options" : ["indices", "node", "shards"],
           "default" : "node"
         },
         "types" : {
           "type" : "list",
           "description" : "A comma-separated list of document types for the `indexing` index metric"
+        },
+        "timeout": {
+          "type" : "time",
+          "description" : "Explicit operation timeout"
         }
       }
     },

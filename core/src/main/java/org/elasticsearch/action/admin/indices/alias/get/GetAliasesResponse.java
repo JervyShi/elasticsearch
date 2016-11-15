@@ -20,7 +20,6 @@
 package org.elasticsearch.action.admin.indices.alias.get;
 
 import com.carrotsearch.hppc.cursors.ObjectObjectCursor;
-import com.google.common.collect.ImmutableList;
 import org.elasticsearch.action.ActionResponse;
 import org.elasticsearch.cluster.metadata.AliasMetaData;
 import org.elasticsearch.common.collect.ImmutableOpenMap;
@@ -29,10 +28,9 @@ import org.elasticsearch.common.io.stream.StreamOutput;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
-/**
- */
 public class GetAliasesResponse extends ActionResponse {
 
     private ImmutableOpenMap<String, List<AliasMetaData>> aliases = ImmutableOpenMap.of();
@@ -61,7 +59,7 @@ public class GetAliasesResponse extends ActionResponse {
             for (int j = 0; j < valueSize; j++) {
                 value.add(AliasMetaData.Builder.readFrom(in));
             }
-            aliasesBuilder.put(key, ImmutableList.copyOf(value));
+            aliasesBuilder.put(key, Collections.unmodifiableList(value));
         }
         aliases = aliasesBuilder.build();
     }
